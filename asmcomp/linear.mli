@@ -27,6 +27,7 @@ type instruction =
 
 and instruction_desc =
   | Lprologue
+  | Lepilogue
   | Lend
   | Lop of Mach.operation
   | Lreloadretaddr

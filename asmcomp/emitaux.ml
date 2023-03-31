@@ -442,9 +442,9 @@ let preproc_stack_check ~fun_body ~frame_size ~trap_size =
         loop i.next s (max s max_fs) nontail_flag
       | Lop (Icall_ind | Icall_imm _ ) ->
         loop i.next fs max_fs true
-      | Lprologue | Lop _ | Lreloadretaddr | Lreturn | Llabel _
-      | Lbranch _ | Lcondbranch _ | Lcondbranch3 _ | Lswitch _
-      | Lentertrap | Lraise _ ->
+      | Lprologue | Lepilogue | Lop _ | Lreloadretaddr | Lreturn
+      | Llabel _ | Lbranch _ | Lcondbranch _ | Lcondbranch3 _
+      | Lswitch _ | Lentertrap | Lraise _ ->
         loop i.next fs max_fs nontail_flag
   in
   loop fun_body frame_size frame_size false

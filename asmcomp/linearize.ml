@@ -135,12 +135,19 @@ let local_exit exit_info k =
   snd (find_exit_label_try_depth exit_info k) = exit_info.try_depth
 
 (* Linearize an instruction [i]: add it in front of the continuation [n] *)
-let linear i n contains_calls =
+let linear i fun_name n contains_calls =
   let rec linear exit_info i n =
     match i.Mach.desc with
       Iend -> n
-    | Iop(Itailcall_ind | Itailcall_imm _ as op) ->
-        copy_instr (Lop op) i (discard_dead_code n)
+    | Iop(Itailcall_ind as op) ->
+        let n1 = copy_instr (Lop op) i (discard_dead_code n) in
+        cons_instr Lepilogue n1
+    | Iop(Itailcall_imm {func; _} as op) ->
+        let n1 = copy_instr (Lop op) i (discard_dead_code n) in
+        if func <> fun_name then 
+          cons_instr Lepilogue n1
+        else 
+          n1
     | Iop(Imove | Ireload | Ispill)
       when i.Mach.arg.(0).loc = i.Mach.res.(0).loc ->
         linear exit_info i.Mach.next n
@@ -161,9 +168,11 @@ let linear i n contains_calls =
         copy_instr (Lop op) i (linear exit_info i.Mach.next n)
     | Ireturn ->
         let n1 = copy_instr Lreturn i (discard_dead_code n) in
+        (* the epilogue might need to be done before reloadretaddr *)
+        let n2 = cons_instr Lepilogue n1 in 
         if contains_calls
-        then cons_instr Lreloadretaddr n1
-        else n1
+        then cons_instr Lreloadretaddr n2
+        else n2
     | Iifthenelse(test, ifso, ifnot) ->
         let n1 = linear exit_info i.Mach.next n in
         begin match (ifso.Mach.desc, ifnot.Mach.desc, n1.desc) with
@@ -336,7 +345,7 @@ let fundecl f =
   let fun_prologue_required = Proc.prologue_required f in
   let contains_calls = f.Mach.fun_contains_calls in
   let fun_tailrec_entry_point_label, fun_body =
-    add_prologue (linear f.Mach.fun_body end_instr contains_calls)
+    add_prologue (linear f.Mach.fun_body f.Mach.fun_name end_instr contains_calls)
       fun_prologue_required
   in
   { fun_name = f.Mach.fun_name;

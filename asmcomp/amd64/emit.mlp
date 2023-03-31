@@ -407,24 +407,6 @@ let emit_float_test env cmp i lbl =
       I.comisd (arg i 1) (arg i 0);(* swap compare *)
       I.jb lbl                     (* taken if unordered or x<y i.e. !(x>=y) *)
 
-(* Deallocate the stack frame before a return or tail call *)
-
-let output_epilogue env f =
-  if env.f.fun_frame_required then begin
-    let frame_size = (frame_size env) in
-    let n = frame_size - 8 - (if fp then 8 else 0) in
-    add_to_rsp n;
-    if fp then pop rbp;
-    f ();
-    (* reset CFA back cause function body may continue *)
-    cfi_adjust_cfa_offset ~bytes:n;
-    if fp then begin
-      cfi_adjust_cfa_offset ~bytes:8
-    end
-  end
-  else
-    f ()
-
 (* Floating-point constants *)
 
 let float_constants = ref ([] : (int64 * int) list)
@@ -468,6 +450,17 @@ let emit_named_text_section func_name =
     end
   else D.text ()
 
+let cfa_adjust env = (frame_size env) - 8 - (if fp then 8 else 0)
+
+let cfa_reconstruct env =
+  if env.f.fun_frame_required then
+    let n = cfa_adjust env in
+      (* reset CFA back cause function body may continue *)
+    cfi_adjust_cfa_offset ~bytes:n;
+    if fp then begin
+      cfi_adjust_cfa_offset ~bytes:8
+    end
+
 (* Output the assembly code for an instruction *)
 
 (* Emit an instruction *)
@@ -491,6 +484,10 @@ let emit_instr env fallthrough i =
     if env.f.fun_frame_required then begin
       let n = (frame_size env) - 8 - (if fp then 8 else 0) in
       add_to_rsp (-n)
+    end
+  | Lepilogue ->
+    if env.f.fun_frame_required then begin
+      add_to_rsp (cfa_adjust env)
     end
   | Lop(Imove | Ispill | Ireload) ->
       let src = i.arg.(0) and dst = i.res.(0) in
@@ -538,16 +535,19 @@ let emit_instr env fallthrough i =
       emit_call func;
       record_frame env i.live (Dbg_other i.dbg)
   | Lop(Itailcall_ind) ->
-      output_epilogue env (fun () -> I.jmp (arg i 0))
+      I.jmp (arg i 0);
+      cfa_reconstruct env
   | Lop(Itailcall_imm { func; }) ->
       begin
         if func = env.f.fun_name then
           I.jmp (label env.f.fun_tailrec_entry_point_label)
+          (* TODO: think about epilogues and prologues.
+                  once the prologues start to move we may need to emit an
+                  epilogues before the jump *)
         else begin
-          output_epilogue env begin fun () ->
             add_used_symbol func;
-            emit_jump func
-          end
+            emit_jump func;
+            cfa_reconstruct env
         end
       end
   | Lop(Iextcall { func; alloc; stack_ofs }) ->
@@ -760,9 +760,8 @@ let emit_instr env fallthrough i =
   | Lreloadretaddr ->
       ()
   | Lreturn ->
-      output_epilogue env begin fun () ->
-        I.ret ()
-      end
+      I.ret ();
+      cfa_reconstruct env
   | Llabel lbl ->
       emit_Llabel env fallthrough lbl
   | Lbranch lbl ->

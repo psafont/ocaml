@@ -28,6 +28,8 @@ let instr ppf i =
   | Lend -> ()
   | Lprologue ->
       fprintf ppf "prologue"
+  | Lepilogue ->
+      fprintf ppf "epilogue"
   | Lop op ->
       begin match op with
       | Ialloc _ | Ipoll _ | Icall_ind | Icall_imm _ | Iextcall _ ->
